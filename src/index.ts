@@ -1,7 +1,7 @@
 import { Elysia, t } from "elysia";
 import cors from "@elysiajs/cors"
 const FILE = '/tmp/cdcs.json'
-const PORT = 8080
+const port = process.env.PORT || 3000;
 async function readClips() {
   try {
     const file = Bun.file(FILE)
@@ -34,7 +34,7 @@ const app = new Elysia()
   .get('/clipboard', async () => {
     return await readClips();
   })
-  .listen(PORT);
+  .listen(port);
 
 console.log(
   `🦊 Elysia is running at ${app.server?.hostname}:${app.server?.port}`
