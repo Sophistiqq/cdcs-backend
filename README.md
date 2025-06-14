@@ -49,5 +49,3 @@ Pick one, and it will be copied to your clipboard via `wl-copy`.
 
 > This project is private and built for personal use.
 
-```
-

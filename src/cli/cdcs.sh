@@ -1,53 +1,56 @@
 #!/bin/bash
 
-SERVER_URL="https://cdcs-backend.onrender.com/clipboard"
+CLIPBOARD_URL="http://localhost:3000/clipboard"
+FILES_URL="http://localhost:3000/files"
+DOWNLOAD_DIR="$HOME/Downloads/cdcs"
 
-# Fetch clipboard entries
-response=$(curl -s "$SERVER_URL")
-count=$(echo "$response" | jq 'length')
+mkdir -p "$DOWNLOAD_DIR"
 
-if [ "$count" -eq 0 ]; then
-  echo "❌ No clipboard entries found."
+# Fetch clipboard and files
+clipboard=$(curl -s "$CLIPBOARD_URL")
+files=$(curl -s "$FILES_URL")
+
+clipboard="${clipboard:-[]}"
+files="${files:-[]}"
+
+clipboard_count=$(echo "$clipboard" | jq 'length // 0')
+files_count=$(echo "$files" | jq 'length // 0')
+
+if [ "$clipboard_count" -eq 0 ] && [ "$files_count" -eq 0 ]; then
+  echo "❌ No data found."
   exit 1
 fi
 
-# Parse flags
-latest=false
-search_query=""
+# Format clipboard entries
+formatted_clipboard=$(echo "$clipboard" | jq -r '
+  .[] | select(.text) | "[Clipboard] \(.time | todateiso8601) | \(.text | gsub("\n"; " ") | .[0:80])"
+')
 
-while [[ "$#" -gt 0 ]]; do
-  case "$1" in
-    --latest) latest=true ;;
-    --search) shift; search_query="$1" ;;
-  esac
-  shift
-done
+# Format file entries
+formatted_files=$(echo "$files" | jq -r '
+  .[] | "[File] \(.name)"
+')
 
-# Handle --latest
-if [ "$latest" = true ]; then
-  text=$(echo "$response" | jq -r '.[0].text')
+# Combine
+combined=$(printf "%s\n%s" "$formatted_clipboard" "$formatted_files")
+
+# Select
+selected=$(echo "$combined" | fzf --prompt="Select item: ")
+
+[ -z "$selected" ] && echo "❌ Cancelled." && exit 1
+
+# Handle clipboard
+if [[ "$selected" == "[Clipboard]"* ]]; then
+  timestamp=$(echo "$selected" | cut -d'|' -f1 | sed 's/\[Clipboard\] //g' | xargs)
+  text=$(echo "$clipboard" | jq -r --arg ts "$timestamp" '.[] | select((.time | todateiso8601) == $ts) | .text')
   echo -n "$text" | wl-copy
-  echo "📋 Copied latest entry!"
-  exit 0
+  echo "📋 Copied clipboard text!"
 fi
 
-# Filter if --search is used
-if [ -n "$search_query" ]; then
-response=$(echo "$response" | jq '[.[] | select(has("text") and (.text | type == "string"))]')
+# Handle file
+if [[ "$selected" == "[File]"* ]]; then
+  filename=$(echo "$selected" | sed 's/\[File\] //')
+  url="${FILES_URL%/}/$filename"
+  curl -s "$url" -o "$DOWNLOAD_DIR/$filename"
+  echo "📁 Downloaded to $DOWNLOAD_DIR/$filename"
 fi
-
-# Format entries with timestamp for display
-formatted=$(echo "$response" | jq -r '.[] | "\(.time | todateiso8601) | \(.text | gsub("\n"; " ") | .[0:80])"')
-
-# Select with fzf
-selected_line=$(echo "$formatted" | fzf --prompt="Select clipboard: ")
-
-[ -z "$selected_line" ] && echo "❌ Cancelled." && exit 1
-
-# Extract original text by matching timestamp
-selected_timestamp=$(echo "$selected_line" | cut -d'|' -f1 | xargs)
-text=$(echo "$response" | jq -r --arg ts "$selected_timestamp" '.[] | select((.time | todateiso8601) == $ts) | .text')
-
-# Copy to clipboard
-echo -n "$text" | wl-copy
-echo "📋 Copied!"

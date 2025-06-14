@@ -45,6 +45,22 @@ package-lock.json
 **/*.bun
 ```
 
+# install.sh
+
+```sh
+#!/bin/bash
+
+TARGET="$HOME/.local/bin/cdcs"
+
+mkdir -p "$(dirname "$TARGET")"
+cp src/cli/cdcs.sh "$TARGET"
+chmod +x "$TARGET"
+
+echo "✅ Installed 'cdcs' to $TARGET"
+echo "ℹ️  Make sure ~/.local/bin is in your PATH"
+
+```
+
 # package.json
 
 ```json
@@ -53,7 +69,8 @@ package-lock.json
   "version": "1.0.50",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "bun run --watch src/index.ts"
+    "dev": "bun run --watch src/index.ts",
+    "start": "bun run src/index.ts"
   },
   "dependencies": {
     "@elysiajs/cors": "^1.3.3",
@@ -70,21 +87,77 @@ package-lock.json
 # README.md
 
 ```md
-# Elysia with Bun runtime
 
-## Getting Started
-To get started with this template, simply paste this command into your terminal:
+\`\`\``md
+# cdcs – Cross-Device Clipboard Sync
+
+`cdcs` is a personal tool that syncs clipboard text between a web app and a command-line interface for quick copy-paste access across devices.
+
+## ✨ Features
+
+- Sync clipboard text from a mobile device or web app to your desktop
+- View and select past clipboard entries from the CLI
+- Automatically copies selected text to your system clipboard
+
+## ⚙️ Requirements
+
+- [`wl-copy`](https://github.com/bugaevc/wl-clipboard) (Wayland clipboard tool)
+- `curl`
+- `jq`
+
+## 📦 Installation
+
+Just drop it in your `~/.local/bin`:
+
 \`\`\`bash
-bun create elysia ./elysia-example
+curl -o ~/.local/bin/cdcs https://raw.githubusercontent.com/your-username/cdcs/main/cdcs
+chmod +x ~/.local/bin/cdcs
+\`\`\``
+
+Make sure `~/.local/bin` is in your `$PATH`.
+
+## 📱 Send from Your Phone
+
+Use the web app to send clipboard text:
+👉 [https://cdcs-clipboard.vercel.app](https://cdcs-clipboard.vercel.app)
+
+The web app connects to the backend (deployed via Render) and pushes your text for retrieval.
+
+## 🖥 Usage
+
+Run it in your terminal:
+
+\`\`\`bash
+cdcs
 \`\`\`
 
-## Development
-To start the development server run:
-\`\`\`bash
-bun run dev
-\`\`\`
+It will fetch recent entries from your web app and show a list.
+Pick one, and it will be copied to your clipboard via `wl-copy`.
 
-Open http://localhost:3000/ with your browser to see the result.
+---
+
+> This project is private and built for personal use.
+
+
+```
+
+# render.yaml
+
+```yaml
+services:  
+  - type: web
+    name: CDCS Clipboard
+    runtime: node
+    repo: https://github.com/Sophistiqq/cdcs-backend
+    plan: free
+    envVars:
+    - key: BUN_VERSION
+      value: 1.1.0
+    region: oregon
+    buildCommand: bun install
+    startCommand: bun start
+version: "1"
+
 ```
 
 # src/cli/cdcs.sh
@@ -92,57 +165,60 @@ Open http://localhost:3000/ with your browser to see the result.
 ```sh
 #!/bin/bash
 
-SERVER_URL="https://cdcs-backend.onrender.com/clipboard"
+CLIPBOARD_URL="http://localhost:3000/clipboard"
+FILES_URL="http://localhost:3000/files"
+DOWNLOAD_DIR="$HOME/Downloads/cdcs"
 
-# Fetch clipboard entries
-response=$(curl -s "$SERVER_URL")
-count=$(echo "$response" | jq 'length')
+mkdir -p "$DOWNLOAD_DIR"
 
-if [ "$count" -eq 0 ]; then
-  echo "❌ No clipboard entries found."
+# Fetch clipboard and files
+clipboard=$(curl -s "$CLIPBOARD_URL")
+files=$(curl -s "$FILES_URL")
+
+clipboard="${clipboard:-[]}"
+files="${files:-[]}"
+
+clipboard_count=$(echo "$clipboard" | jq 'length // 0')
+files_count=$(echo "$files" | jq 'length // 0')
+
+if [ "$clipboard_count" -eq 0 ] && [ "$files_count" -eq 0 ]; then
+  echo "❌ No data found."
   exit 1
 fi
 
-# Parse flags
-latest=false
-search_query=""
+# Format clipboard entries
+formatted_clipboard=$(echo "$clipboard" | jq -r '
+  .[] | select(.text) | "[Clipboard] \(.time | todateiso8601) | \(.text | gsub("\n"; " ") | .[0:80])"
+')
 
-while [[ "$#" -gt 0 ]]; do
-  case "$1" in
-    --latest) latest=true ;;
-    --search) shift; search_query="$1" ;;
-  esac
-  shift
-done
+# Format file entries
+formatted_files=$(echo "$files" | jq -r '
+  .[] | "[File] \(.name)"
+')
 
-# Handle --latest
-if [ "$latest" = true ]; then
-  text=$(echo "$response" | jq -r '.[0].text')
+# Combine
+combined=$(printf "%s\n%s" "$formatted_clipboard" "$formatted_files")
+
+# Select
+selected=$(echo "$combined" | fzf --prompt="Select item: ")
+
+[ -z "$selected" ] && echo "❌ Cancelled." && exit 1
+
+# Handle clipboard
+if [[ "$selected" == "[Clipboard]"* ]]; then
+  timestamp=$(echo "$selected" | cut -d'|' -f1 | sed 's/\[Clipboard\] //g' | xargs)
+  text=$(echo "$clipboard" | jq -r --arg ts "$timestamp" '.[] | select((.time | todateiso8601) == $ts) | .text')
   echo -n "$text" | wl-copy
-  echo "📋 Copied latest entry!"
-  exit 0
+  echo "📋 Copied clipboard text!"
 fi
 
-# Filter if --search is used
-if [ -n "$search_query" ]; then
-response=$(echo "$response" | jq '[.[] | select(has("text") and (.text | type == "string"))]')
+# Handle file
+if [[ "$selected" == "[File]"* ]]; then
+  filename=$(echo "$selected" | sed 's/\[File\] //')
+  url="${FILES_URL%/}/$filename"
+  curl -s "$url" -o "$DOWNLOAD_DIR/$filename"
+  echo "📁 Downloaded to $DOWNLOAD_DIR/$filename"
 fi
-
-# Format entries with timestamp for display
-formatted=$(echo "$response" | jq -r '.[] | "\(.time | todateiso8601) | \(.text | gsub("\n"; " ") | .[0:80])"')
-
-# Select with fzf
-selected_line=$(echo "$formatted" | fzf --prompt="Select clipboard: ")
-
-[ -z "$selected_line" ] && echo "❌ Cancelled." && exit 1
-
-# Extract original text by matching timestamp
-selected_timestamp=$(echo "$selected_line" | cut -d'|' -f1 | xargs)
-text=$(echo "$response" | jq -r --arg ts "$selected_timestamp" '.[] | select((.time | todateiso8601) == $ts) | .text')
-
-# Copy to clipboard
-echo -n "$text" | wl-copy
-echo "📋 Copied!"
 
 ```
 
@@ -150,42 +226,88 @@ echo "📋 Copied!"
 
 ```ts
 import { Elysia, t } from "elysia";
-import cors from "@elysiajs/cors"
-const FILE = '/tmp/cdcs.json'
-const PORT = 8080
-async function readClips() {
-  try {
-    const file = Bun.file(FILE)
-    const text = await file.text();
-    return JSON.parse(text)
-  } catch {
-    return []
-  }
+import cors from "@elysiajs/cors";
+import { file } from "bun";
+
+const port = process.env.PORT || 3000;
+
+// 👇 In-memory clipboard array
+const clips: { text: string; time: number }[] = [];
+
+function getClips() {
+  return clips.slice(0, 20);
 }
 
-async function writeClips(clips: any[]) {
-  await Bun.write(FILE, JSON.stringify(clips.slice(0, 20)))
+function addClip(text: string) {
+  clips.unshift({ text, time: Date.now() });
+  if (clips.length > 20) clips.length = 20;
 }
 
 const app = new Elysia()
   .use(cors())
   .get("/", () => "Hello, the app is running")
-  .post('/clipboard', async ({ body }) => {
-    const { text } = body;
-    console.log(text)
-    const clips = await readClips();
-    clips.unshift({ text, time: Date.now() })
-    await writeClips(clips)
-    return 'OK';
+  .post(
+    "/clipboard",
+    ({ body }) => {
+      const { text } = body;
+      addClip(text);
+      return "OK";
+    },
+    {
+      body: t.Object({
+        text: t.String(),
+      }),
+    }
+  )
+  .get("/clipboard", () => {
+    return getClips();
+  })
+  .post("/upload", async ({ body }) => {
+    const buffer = await body.file.arrayBuffer()
+    const filename = body.file.name;
+
+    await Bun.write(`./uploads/${filename}`, Buffer.from(buffer))
+
+    return {
+      message: "File Uploaded Successfully", name: filename
+    }
   }, {
     body: t.Object({
-      text: t.String()
+      file: t.File()
     })
   })
-  .get('/clipboard', async () => {
-    return await readClips();
+  // 1. File list
+  .get("/files", () => {
+    const dir = "./uploads";
+    const files = Bun.spawnSync(["ls", "-1", dir]).stdout.toString().trim().split("\n");
+    return files.map(name => ({
+      name,
+      url: `/files/${encodeURIComponent(name)}`,
+    }));
   })
-  .listen(PORT);
+  // Step 2: Return actual file
+  .get("/files/:name", ({ params }) => {
+    const { name } = params;
+
+    // Prevent path traversal
+    if (name.includes("/") || name.includes("..")) {
+      return new Response("❌ Invalid filename", { status: 400 });
+    }
+
+    const fullPath = `./uploads/${name}`;
+
+    // Check if file exists
+    if (!Bun.file(fullPath).exists()) {
+      return new Response("❌ File not found", { status: 404 });
+    }
+
+    return { file: file(fullPath) };
+  }, {
+    params: t.Object({
+      name: t.String()
+    })
+  })
+  .listen(port);
 
 console.log(
   `🦊 Elysia is running at ${app.server?.hostname}:${app.server?.port}`
@@ -301,4 +423,8 @@ console.log(
 }
 
 ```
+
+# uploads/Multo.mp3
+
+This is a binary file of the type: Binary
 
