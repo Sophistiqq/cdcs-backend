@@ -1,6 +1,6 @@
 #!/bin/bash
 
-TARGET="$HOME/.local/bin/cdcs"
+TARGET="/usr/local/bin/cdcs"
 
 mkdir -p "$(dirname "$TARGET")"
 cp src/cli/cdcs.sh "$TARGET"

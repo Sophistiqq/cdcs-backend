@@ -6,8 +6,8 @@ if [ "$1" = "-f" ]; then
     show_files_only=true
 fi
 
-CLIPBOARD_URL="http://cdcs-backend.onrender.com/clipboard"
-FILES_URL="http://cdcs-backend.onrender.com/files"
+CLIPBOARD_URL="https://cdcs-clipboard-production.up.railway.app/clipboard"
+FILES_URL="https://cdcs-clipboard-production.up.railway.app/files"
 DOWNLOAD_DIR="$HOME/Downloads/cdcs"
 
 mkdir -p "$DOWNLOAD_DIR"
@@ -40,13 +40,31 @@ if [ "$show_files_only" = true ]; then
     
     # Download file
     filename=$(echo "$selected" | sed 's/\[File\] //')
-    url="http://http://cdcs-backend.onrender.com/files/$filename"
+    url="https://cdcs-clipboard-production.up.railway.app/files/$filename"
     
     echo "📥 Downloading $filename..."
-    if curl -s "$url" -o "$DOWNLOAD_DIR/$filename"; then
-        echo "📁 Downloaded to $DOWNLOAD_DIR/$filename"
+    echo "🔗 URL: $url"
+    echo "📂 Destination: $DOWNLOAD_DIR/$filename"
+    
+    # First check if the URL is accessible
+    if ! curl -s --head "$url" >/dev/null 2>&1; then
+        echo "❌ Cannot reach $url - check if the server is running"
+        exit 1
+    fi
+    
+    # Download with verbose error reporting
+    if curl -L --fail -o "$DOWNLOAD_DIR/$filename" "$url" 2>/dev/null; then
+        if [ -f "$DOWNLOAD_DIR/$filename" ] && [ -s "$DOWNLOAD_DIR/$filename" ]; then
+            echo "📁 Downloaded to $DOWNLOAD_DIR/$filename"
+        else
+            echo "❌ File was created but appears to be empty"
+            exit 1
+        fi
     else
         echo "❌ Failed to download $filename"
+        echo "🔍 Debugging info:"
+        echo "   - Check if server is running: curl -I https://cdcs-backend.onrender.com"
+        echo "   - Test URL directly: curl -v '$url'"
         exit 1
     fi
     
