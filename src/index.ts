@@ -24,6 +24,7 @@ const app = new Elysia()
     ({ body }) => {
       const { text } = body;
       addClip(text);
+      console.log("Texts has been sent to server")
       return "OK";
     },
     {
@@ -40,6 +41,8 @@ const app = new Elysia()
     const filename = body.file.name;
 
     await Bun.write(`./uploads/${filename}`, Buffer.from(buffer))
+
+    console.log(`File ${filename} has been uploaded`)
 
     return {
       message: "File Uploaded Successfully", name: filename
