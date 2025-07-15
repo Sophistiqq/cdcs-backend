@@ -23,7 +23,7 @@ Just drop it in your `~/.local/bin`:
 ```bash
 curl -o ~/.local/bin/cdcs https://raw.githubusercontent.com/your-username/cdcs/main/cdcs
 chmod +x ~/.local/bin/cdcs
-````
+```
 
 Make sure `~/.local/bin` is in your `$PATH`.
 
