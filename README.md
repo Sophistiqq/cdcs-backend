@@ -1,5 +1,5 @@
 
-````md
+
 # cdcs – Cross-Device Clipboard Sync
 
 `cdcs` is a personal tool that syncs clipboard text between a web app and a command-line interface for quick copy-paste access across devices.
